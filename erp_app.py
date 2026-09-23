@@ -63,15 +63,16 @@ def init_state():
             "P4": {"status": "未研发", "progress": 0, "last_invest_q": "", "req": 5, "cost": 3}
         }
         
+        # 初始生产线：book_value为建造成本，built_year=0代表当年已建成或往年建成（允许折旧）
         st.session_state.lines = [
-            {"id": 1, "type": "手工生产线", "status": "生产中", "product": "P1", "progress": 1, "invested": 5, "last_invest_q": "", "book_value": 5, "built_year": 0},
-            {"id": 2, "type": "手工生产线", "status": "生产中", "product": "P1", "progress": 2, "invested": 5, "last_invest_q": "", "book_value": 5, "built_year": 0},
-            {"id": 3, "type": "手工生产线", "status": "生产中", "product": "P1", "progress": 3, "invested": 5, "last_invest_q": "", "book_value": 5, "built_year": 0},
-            {"id": 4, "type": "半自动生产线", "status": "生产中", "product": "P1", "progress": 1, "invested": 10, "last_invest_q": "", "book_value": 10, "built_year": 0}
+            {"id": 1, "type": "手工生产线", "status": "生产中", "product": "P1", "progress": 1, "invested": 5, "last_invest_q": "", "book_value": 3, "built_year": 0},
+            {"id": 2, "type": "手工生产线", "status": "生产中", "product": "P1", "progress": 2, "invested": 5, "last_invest_q": "", "book_value": 3, "built_year": 0},
+            {"id": 3, "type": "手工生产线", "status": "生产中", "product": "P1", "progress": 3, "invested": 5, "last_invest_q": "", "book_value": 3, "built_year": 0},
+            {"id": 4, "type": "半自动生产线", "status": "生产中", "product": "P1", "progress": 1, "invested": 10, "last_invest_q": "", "book_value": 4, "built_year": 0}
         ]
         
         st.session_state.mat_orders = [] 
-        st.session_state.log = [f"### 初始状态录入完毕 (资金: 20M)"]
+        st.session_state.log = [f"### 方圆ERP初始状态录入完毕 (资金: 20M)"]
         st.session_state.cash_flows = []
         st.session_state.depreciation_log = [] 
         
@@ -85,7 +86,7 @@ def init_state():
 
 init_state()
 
-# -------------------- 2. 核心流转与全局提示 --------------------
+# -------------------- 2. 核心流转与日志 --------------------
 def get_current_q_str():
     return f"Y{st.session_state.year}Q{st.session_state.quarter}"
 
@@ -133,7 +134,7 @@ def prev_step():
 
 # -------------------- 3. 侧边栏：大盘监控 --------------------
 with st.sidebar:
-    st.header("📊 沙盘大盘监控")
+    st.header("🏢 方圆ERP沙盘监控")
     st.metric(label=f"当前进度: {get_current_q_str()}", value=f"现金: {st.session_state.cash} M")
     st.progress(st.session_state.current_step / 5.0, text=f"本季操作进度: {st.session_state.current_step}/5")
     
@@ -163,21 +164,21 @@ with st.sidebar:
         st.write("**原材料**", st.session_state.materials)
         st.write("**成品库**", {k: v for k, v in st.session_state.products.items() if v > 0})
         
-    with st.expander("⚙️ 生产线状态", expanded=True):
+    with st.expander("⚙️ 生产线状态与现值", expanded=True):
         for line in st.session_state.lines:
             if line['status'] == "空闲": 
-                st.write(f"✅ **L{line['id']}**: 空闲 ({line['product']})")
+                st.write(f"✅ **L{line['id']}** ({line['type']}): 空闲 | 现值: **{line['book_value']}M**")
             elif line['status'] == "生产中": 
                 cycle = LINE_TYPES[line['type']]['prod_cycle']
-                st.write(f"⚙️ **L{line['id']}**: 产 {line['product']} ({line['progress']}/{cycle}期)")
+                st.write(f"⚙️ **L{line['id']}** ({line['type']}): 产{line['product']}({line['progress']}/{cycle}期) | 现值: **{line['book_value']}M**")
             elif line['status'] == "转产中": 
-                st.write(f"🔄 **L{line['id']}**: 转 {line['product']}")
+                st.write(f"🔄 **L{line['id']}** ({line['type']}): 转产中 | 现值: **{line['book_value']}M**")
             elif line['status'] == "建设中": 
                 b_time = LINE_TYPES[line['type']]['build_time']
-                st.write(f"🚧 **L{line['id']}**: 建 ({line['progress']}/{b_time}期)")
+                st.write(f"🚧 **L{line['id']}** ({line['type']}): 建设中({line['progress']}/{b_time})")
 
 # -------------------- 4. 主面板交互 --------------------
-st.title("ERP 沙盘自动化推演系统")
+st.title("方圆 ERP 沙盘自动化推演系统")
 tab_ops, tab_reports, tab_log = st.tabs(["▶️ 当前季度操作向导", "📊 财务报表", "📜 日志存档"])
 
 with tab_ops:
@@ -191,38 +192,54 @@ with tab_ops:
         else:
             st.info("该季度无现金流水记录。")
             
+        # 年末资产负债大盘统计
         if "Q4" in st.session_state.last_q_str:
             st.divider()
-            st.markdown("### 📋 年末资产盘点明细")
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.markdown("**💰 流动资产**")
-                st.write(f"- **现金:** {st.session_state.cash}M")
-                st.write(f"- **应收账款总额:** {sum(r['amount'] for r in st.session_state.receivables)}M")
-                mat_str = ", ".join([f"{k}x{v}" for k,v in st.session_state.materials.items() if v>0])
-                st.write(f"- **原料存量:** {mat_str if mat_str else '无'}")
+            st.markdown("### 📋 方圆ERP 年末资产负债与权益快报")
+            
+            # 计算各项资产总额
+            cash_tot = st.session_state.cash
+            ar_tot = sum(r['amount'] for r in st.session_state.receivables)
+            mat_tot = sum(st.session_state.materials.values()) * 1 # 假设原料统一计价1M
+            
+            wip_lines = [l for l in st.session_state.lines if l['status'] == '生产中' and l['progress'] < LINE_TYPES[l['type']]['prod_cycle']]
+            wip_tot = sum(STD_DIRECT_COST[l['product']] for l in wip_lines)
+            
+            prod_tot = sum(v * STD_DIRECT_COST[k] for k, v in st.session_state.products.items()) # 按标准直成估算存货价值
+            total_current_assets = cash_tot + ar_tot + mat_tot + wip_tot + prod_tot
+            
+            fac_tot = sum(f['value'] for f in st.session_state.factories if f['status'] == '自有')
+            line_net_tot = sum(l['book_value'] for l in st.session_state.lines)
+            total_fixed_assets = fac_tot + line_net_tot
+            
+            total_assets = total_current_assets + total_fixed_assets
+            
+            # 负债统计
+            st_liab = sum(l['amount'] for l in st.session_state.short_term_loans)
+            lt_liab = sum(l['amount'] for l in st.session_state.long_term_loans)
+            usury_liab = sum(l['amount'] for l in st.session_state.usury_loans)
+            tax_liab = st.session_state.tax_payable
+            total_liabilities = st_liab + lt_liab + usury_liab + tax_liab
+            
+            col_b1, col_b2 = st.columns(2)
+            with col_b1:
+                st.markdown("##### 🟢 资产情况 (Assets)")
+                st.write(f"- **流动资产合计:** {total_current_assets}M")
+                st.write(f"  - 现金: {cash_tot}M | 应收账款: {ar_tot}M")
+                st.write(f"  - 原料: {sum(st.session_state.materials.values())}个 | 在制品: {len(wip_lines)}个 | 成品: {sum(st.session_state.products.values())}个")
+                st.write(f"- **固定资产合计:** {total_fixed_assets}M")
+                st.write(f"  - 自有厂房价值: {fac_tot}M")
+                st.write(f"  - 生产线账面净值: {line_net_tot}M")
+                st.markdown(f"**资产总计 (Total Assets): {total_assets} M**")
                 
-                wip_lines = [l for l in st.session_state.lines if l['status'] == '生产中' and l['progress'] < LINE_TYPES[l['type']]['prod_cycle']]
-                wip_val = sum(STD_DIRECT_COST[l['product']] for l in wip_lines)
-                wip_str = ", ".join([f"L{l['id']}({l['product']})" for l in wip_lines])
-                st.write(f"- **在制品(WIP):** {wip_val}M ({wip_str if wip_str else '无'})")
-                
-                prod_str = ", ".join([f"{k}x{v}" for k,v in st.session_state.products.items() if v>0])
-                st.write(f"- **成品存量:** {prod_str if prod_str else '无'}")
-            with c2:
-                st.markdown("**🏢 固定资产 (厂房)**")
-                own_facs = [f for f in st.session_state.factories if f['status'] == '自有']
-                if own_facs:
-                    for f in own_facs: st.write(f"- {f['type']}: 价值 {f['value']}M")
-                else:
-                    st.write("- 无自有厂房")
-            with c3:
-                st.markdown("**⚙️ 固定资产 (设备净值)**")
-                built_lines = [l for l in st.session_state.lines if l['status'] != '建设中']
-                if built_lines:
-                    for l in built_lines: st.write(f"- L{l['id']}({l['type']}): **净值 {l['book_value']}M**")
-                else:
-                    st.write("- 无建成设备")
+            with col_b2:
+                st.markdown("##### 🔴 负债情况 (Liabilities)")
+                st.write(f"- **短期负债:** {st_liab + usury_liab}M (短贷{st_liab}M / 高利贷{usury_liab}M)")
+                st.write(f"- **长期负债:** {lt_liab}M (长期贷款)")
+                st.write(f"- **应交税金:** {tax_liab}M")
+                st.markdown(f"**负债总计 (Total Liabilities): {total_liabilities} M**")
+                owner_equity = total_assets - total_liabilities
+                st.markdown(f"**所有者权益 (净资产): {owner_equity} M**")
 
         if st.button("知道了，关闭报告进入下一季", type="primary"):
             st.session_state.show_q_summary = False
@@ -233,7 +250,7 @@ with tab_ops:
     st.subheader(f"📅 第 {st.session_state.year} 年 第 {st.session_state.quarter} 季度")
     
     # ================= 步骤 1 =================
-    with st.expander("📍 步骤 1: 财务操作 (自动结算、贴现与贷款管理)", expanded=(st.session_state.current_step == 1)):
+    with st.expander("📍 步骤 1: 财务操作 (自动结算、折旧与贷款管理)", expanded=(st.session_state.current_step == 1)):
         if st.session_state.current_step == 1:
             st.markdown("#### A. 应收账款贴现")
             if st.session_state.receivables:
@@ -258,7 +275,7 @@ with tab_ops:
                 st.write("暂无应收账款可供贴现。")
 
             st.divider()
-            st.markdown("#### B. 自动费用结算")
+            st.markdown("#### B. 自动费用结算与年末折旧")
             rent_fee = sum(f['rent'] for f in st.session_state.factories if f['status'] == '租赁')
             dev_mkt = [m for m, d in st.session_state.markets.items() if d['status'] == "已开发"]
             
@@ -285,7 +302,7 @@ with tab_ops:
                 if built_lines > 0:
                     summary.append(f"- 支付设备维护费: {built_lines}M")
                     total_auto_deduct += built_lines
-                summary.append(f"- 📉 **自动核算设备折旧损失 (不影响现金)**")
+                summary.append(f"- 📉 **年末自动计提折旧 (余额递减法：1/3或小于3M提1M至残值)**")
                 
             st.markdown("\n".join(summary))
             
@@ -314,12 +331,16 @@ with tab_ops:
                                 log_action("自动扣款", -built_lines, "支付设备维护费")
                                 st.session_state.current_year_income["maint"] += built_lines
                             
+                            # 严格执行规则：建成下一年起，按余额递减法（1/3向下取整，小于3M提1M，至残值底线）
                             total_dep = 0
                             for line in st.session_state.lines:
                                 if line['status'] != "建设中" and line['built_year'] < st.session_state.year:
                                     salvage = LINE_TYPES[line['type']]['salvage']
                                     if line['book_value'] > salvage:
-                                        dep = int(line['book_value'] / 3) if line['book_value'] >= 3 else 1
+                                        if line['book_value'] >= 3:
+                                            dep = line['book_value'] // 3
+                                        else:
+                                            dep = 1
                                         actual_dep = min(dep, line['book_value'] - salvage)
                                         line['book_value'] -= actual_dep
                                         total_dep += actual_dep
@@ -479,7 +500,6 @@ with tab_ops:
         if st.session_state.current_step == 3:
             available_prods = [p for p, d in st.session_state.rnd.items() if d['status'] == "已研发"]
             for line in st.session_state.lines:
-                # 优化点：若生产线本季度内会完工（即 progress >= 周期），也允许在步骤3将其视为可投料的空闲线
                 cycle = LINE_TYPES[line['type']]['prod_cycle']
                 is_finishing_soon = (line['status'] == "生产中" and line['progress'] >= cycle)
                 
@@ -710,15 +730,15 @@ with tab_ops:
                     if st.session_state.cash >= 5:
                         new_id = (max([l['id'] for l in st.session_state.lines]) + 1) if st.session_state.lines else 1
                         cost = LINE_TYPES[new_line_type]['cost']
+                        # 标记 built_year = st.session_state.year 代表当年在建/建成，根据规则“建成下一年”才提折旧
                         st.session_state.lines.append({
                             "id": new_id, "type": new_line_type, "status": "建设中", "product": "未定", 
                             "progress": 1, "invested": 5, "last_invest_q": get_current_q_str(),
-                            "book_value": cost, "built_year": 0
+                            "book_value": cost, "built_year": st.session_state.year
                         })
                         log_action("新建生产线", -5, f"新增 L{new_id}")
                         if LINE_TYPES[new_line_type]['build_time'] == 1:
                             st.session_state.lines[-1]['status'], st.session_state.lines[-1]['progress'] = "空闲", 0
-                            st.session_state.lines[-1]['built_year'] = st.session_state.year
                         st.rerun()
                     else: st.error("❌ 现金不足！")
                     
