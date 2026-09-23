@@ -65,7 +65,7 @@ def init_state():
             "P4": {"status": "未研发", "progress": 0, "last_invest_q": "", "req": 5, "cost": 3}
         }
         
-        # 初始未推前的4条生产线：手工线分别为1、2、3期，半自动为1期
+        # 初始生产线（built_year=0代表以往年份建成，参与维护费和折旧）
         st.session_state.lines = [
             {"id": 1, "type": "手工生产线", "status": "生产中", "product": "P1", "progress": 1, "invested": 3, "last_invest_q": "", "book_value": 5, "built_year": 0},
             {"id": 2, "type": "手工生产线", "status": "生产中", "product": "P1", "progress": 2, "invested": 3, "last_invest_q": "", "book_value": 5, "built_year": 0},
@@ -123,12 +123,10 @@ def advance_production_lines_for_quarter():
             if line['status'] == "生产中":
                 cycle = LINE_TYPES[line['type']]['prod_cycle']
                 if line['progress'] >= cycle:
-                    # 完工下线
                     line['status'], line['progress'] = "空闲", 0
                     st.session_state.products[line['product']] += 1
                     log_action("生产下线入库", 0, f"L{line['id']}({line['type']}) 完工 {line['product']} 下线入库 (成品库: {st.session_state.products[line['product']]})")
                 else:
-                    # 推进一期
                     line['progress'] += 1
             elif line['status'] == "转产中":
                 line['status'] = "空闲"
@@ -270,7 +268,6 @@ with tab_ops:
     with st.expander("📍 步骤 1: 财务操作 (季初产线推进、自动结算与贷款)", expanded=(st.session_state.current_step == 1)):
         if st.session_state.current_step == 1:
             
-            # 步骤1触发季初生产线推进
             if not st.session_state.quarter_production_advanced:
                 advance_production_lines_for_quarter()
                 st.rerun()
@@ -318,13 +315,19 @@ with tab_ops:
                     
             if st.session_state.quarter == 4:
                 lt_interest = int(sum(l['amount'] for l in st.session_state.long_term_loans) * 0.1)
-                built_lines = len([l for l in st.session_state.lines if l['status'] != "建设中"])
+                # 规则更新：仅对当年之前建成的旧生产线收取维护费，当年生产/建成的生产线免收维护费
+                maint_lines = [l for l in st.session_state.lines if l['status'] != "建设中" and l['built_year'] < st.session_state.year]
+                line_maint_fee = len(maint_lines)
+                
                 if lt_interest > 0:
                     summary.append(f"- 支付长贷利息 (10%): {lt_interest}M")
                     total_auto_deduct += lt_interest
-                if built_lines > 0:
-                    summary.append(f"- 支付设备维护费: {built_lines}M")
-                    total_auto_deduct += built_lines
+                if line_maint_fee > 0:
+                    summary.append(f"- 支付设备维护费 (往年建成设备免新产线): {line_maint_fee}M")
+                    total_auto_deduct += line_maint_fee
+                else:
+                    summary.append("- 设备维护费: 0M (无往年建成的计提设备)")
+                    
                 summary.append("- 📉 **年末自动计提折旧 (余额递减法)**")
                 
             st.markdown("\n".join(summary))
@@ -350,10 +353,15 @@ with tab_ops:
                             if lt_interest > 0: 
                                 log_action("自动扣款", -lt_interest, "支付长贷利息")
                                 st.session_state.current_year_income["financial"] += lt_interest
-                            if built_lines > 0: 
-                                log_action("自动扣款", -built_lines, "支付设备维护费")
-                                st.session_state.current_year_income["maint"] += built_lines
                             
+                            # 扣除符合条件的维护费（当年建成的线不收维护费）
+                            maint_lines = [l for l in st.session_state.lines if l['status'] != "建设中" and l['built_year'] < st.session_state.year]
+                            line_maint_fee = len(maint_lines)
+                            if line_maint_fee > 0: 
+                                log_action("自动扣款", -line_maint_fee, f"支付老设备维护费共 {line_maint_fee}M")
+                                st.session_state.current_year_income["maint"] += line_maint_fee
+                            
+                            # 折旧：建成下一年起计提
                             total_dep = 0
                             for line in st.session_state.lines:
                                 if line['status'] != "建设中" and line['built_year'] < st.session_state.year:
@@ -537,7 +545,6 @@ with tab_ops:
                             if can_prod:
                                 if st.session_state.cash >= 1:
                                     consume_bom(target_prod)
-                                    # 空闲线投料后，直接置为第1期在产
                                     line['status'], line['progress'] = "生产中", 1
                                     log_action("上线投料加工", -1, f"L{line['id']} 投入生产 {target_prod}")
                                     st.rerun()
@@ -747,6 +754,7 @@ with tab_ops:
                     if st.session_state.cash >= 5:
                         new_id = (max([l['id'] for l in st.session_state.lines]) + 1) if st.session_state.lines else 1
                         cost = LINE_TYPES[new_line_type]['cost']
+                        # 标记 built_year 为当年，确保在当年免收维护费且建成下一年才提折旧
                         st.session_state.lines.append({
                             "id": new_id, "type": new_line_type, "status": "建设中", "product": "未定", 
                             "progress": 1, "invested": 5, "last_invest_q": get_current_q_str(),
