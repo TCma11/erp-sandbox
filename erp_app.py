@@ -44,7 +44,8 @@ def init_state():
         st.session_state.tax_payable = 1
         
         st.session_state.factories = [{"id": 1, "type": "大厂房", "status": "自有", "value": 40, "rent": 0}]
-        st.session_state.receivables = [{"amount": 15, "arrival_y": 1, "arrival_q": 4}] 
+        # 修改点：初始应收款对应第三季度获得 (Y1Q3)
+        st.session_state.receivables = [{"amount": 15, "arrival_y": 1, "arrival_q": 3}] 
         st.session_state.orders = []
         st.session_state.order_counter = 1
         
@@ -67,14 +68,14 @@ def init_state():
         
         # 初始生产线（built_year=0代表以往年份建成，参与维护费和折旧）
         st.session_state.lines = [
-            {"id": 1, "type": "手工生产线", "status": "生产中", "product": "P1", "progress": 1, "invested": 3, "last_invest_q": "", "book_value": 5, "built_year": 0},
-            {"id": 2, "type": "手工生产线", "status": "生产中", "product": "P1", "progress": 2, "invested": 3, "last_invest_q": "", "book_value": 5, "built_year": 0},
-            {"id": 3, "type": "手工生产线", "status": "生产中", "product": "P1", "progress": 3, "invested": 3, "last_invest_q": "", "book_value": 5, "built_year": 0},
-            {"id": 4, "type": "半自动生产线", "status": "生产中", "product": "P1", "progress": 1, "invested": 4, "last_invest_q": "", "book_value": 10, "built_year": 0}
+            {"id": 1, "type": "手工生产线", "status": "生产中", "product": "P1", "progress": 1, "invested": 3, "last_invest_q": "", "book_value": 3, "built_year": 0},
+            {"id": 2, "type": "手工生产线", "status": "生产中", "product": "P1", "progress": 2, "invested": 3, "last_invest_q": "", "book_value": 3, "built_year": 0},
+            {"id": 3, "type": "手工生产线", "status": "生产中", "product": "P1", "progress": 3, "invested": 3, "last_invest_q": "", "book_value": 3, "built_year": 0},
+            {"id": 4, "type": "半自动生产线", "status": "生产中", "product": "P1", "progress": 1, "invested": 4, "last_invest_q": "", "book_value": 4, "built_year": 0}
         ]
         
         st.session_state.mat_orders = [] 
-        st.session_state.log = ["### 方圆ERP初始盘面录入完毕 (现金: 20M, 原料: 3个R1, 成品: 3个P1)"]
+        st.session_state.log = ["### 方圆ERP初始盘面录入完毕 (现金: 20M, 原料: 3个R1, 成品: 3个P1, 应收: 15M[Y1Q3到账])"]
         st.session_state.cash_flows = []
         st.session_state.depreciation_log = [] 
         
@@ -182,7 +183,7 @@ with st.sidebar:
         st.write(f"- 高利贷: {sum(l['amount'] for l in st.session_state.usury_loans)}M")
         st.write(f"- **应交税金: {st.session_state.tax_payable}M**")
 
-    with st.expander("📝 应收账款明细", expanded=False):
+    with st.expander("📝 应收账款明细", expanded=True):
         if st.session_state.receivables:
             for r in st.session_state.receivables:
                 st.write(f"- {r['amount']}M (预计 Y{r['arrival_y']}Q{r['arrival_q']} 到账)")
@@ -315,7 +316,6 @@ with tab_ops:
                     
             if st.session_state.quarter == 4:
                 lt_interest = int(sum(l['amount'] for l in st.session_state.long_term_loans) * 0.1)
-                # 规则更新：仅对当年之前建成的旧生产线收取维护费，当年生产/建成的生产线免收维护费
                 maint_lines = [l for l in st.session_state.lines if l['status'] != "建设中" and l['built_year'] < st.session_state.year]
                 line_maint_fee = len(maint_lines)
                 
@@ -342,11 +342,11 @@ with tab_ops:
                             if rent_fee > 0: 
                                 log_action("自动扣款", -rent_fee, "支付租赁厂房租金")
                                 st.session_state.current_year_income["rent"] += rent_fee
-                            if st.session_state.tax_payable > 0:
+                            if st.session_state.tax_payable > 0: 
                                 log_action("自动扣款", -st.session_state.tax_payable, "缴纳所得税")
                                 st.session_state.tax_payable = 0
                             if dev_mkt: 
-                                log_action("自动扣款", -len(dev_mkt), f"支付市场维护费")
+                                log_action("自动扣款", -len(dev_mkt), "支付市场维护费")
                                 st.session_state.current_year_income["mkt_maint"] += len(dev_mkt)
                                 
                         if st.session_state.quarter == 4:
@@ -354,14 +354,12 @@ with tab_ops:
                                 log_action("自动扣款", -lt_interest, "支付长贷利息")
                                 st.session_state.current_year_income["financial"] += lt_interest
                             
-                            # 扣除符合条件的维护费（当年建成的线不收维护费）
                             maint_lines = [l for l in st.session_state.lines if l['status'] != "建设中" and l['built_year'] < st.session_state.year]
                             line_maint_fee = len(maint_lines)
                             if line_maint_fee > 0: 
                                 log_action("自动扣款", -line_maint_fee, f"支付老设备维护费共 {line_maint_fee}M")
                                 st.session_state.current_year_income["maint"] += line_maint_fee
                             
-                            # 折旧：建成下一年起计提
                             total_dep = 0
                             for line in st.session_state.lines:
                                 if line['status'] != "建设中" and line['built_year'] < st.session_state.year:
@@ -453,40 +451,44 @@ with tab_ops:
         elif st.session_state.current_step > 1:
             st.success("本步骤已完成。")
 
-    # ================= 步骤 2 =================
+    # ================= 步骤 2 (修改点：仅在Q1开放广告与获得订单) =================
     with st.expander("📍 步骤 2: 广告投入与订单管理", expanded=(st.session_state.current_step == 2)):
         if st.session_state.current_step == 2:
-            st.markdown("#### A. 市场广告投入")
-            ad_amt = st.number_input("本年广告总投入(M)", min_value=1, value=1)
-            if st.button(f"支付广告费 {ad_amt}M"):
-                if st.session_state.cash >= ad_amt:
-                    log_action("支付广告费", -ad_amt, "投入市场广告")
-                    st.session_state.current_year_income["ad"] += ad_amt
-                    st.rerun()
-                else:
-                    st.error("❌ 现金不足以支付该笔广告费！")
-            
-            st.divider()
-            st.markdown("#### B. 订单登记与交货")
-            available_prods = [p for p, d in st.session_state.rnd.items() if d['status'] == "已研发"]
-            if not available_prods: available_prods = ["P1"]
-            
-            c_prod, c_qty, c_rev, c_term, c_btn = st.columns([2, 1, 1, 1, 1])
-            with c_prod: o_prod = st.selectbox("录入订单", available_prods)
-            with c_qty: o_qty = st.number_input("数量", min_value=1, value=1)
-            with c_rev: o_rev = st.number_input("总金额", min_value=1, value=5)
-            with c_term: o_term = st.number_input("账期(Q)", min_value=0, max_value=4, value=2)
-            with c_btn:
-                st.write("")
-                st.write("")
-                if st.button("登记单据"):
-                    st.session_state.orders.append({"id": st.session_state.order_counter, "product": o_prod, "qty": o_qty, "revenue": o_rev, "terms": o_term})
-                    log_action("登记订单", 0, f"单号{st.session_state.order_counter}: {o_prod} x{o_qty}")
-                    st.session_state.order_counter += 1
-                    st.rerun()
-                    
-            if st.session_state.orders:
+            if st.session_state.quarter == 1:
+                st.markdown("#### A. 市场广告投入 (年初订货会)")
+                ad_amt = st.number_input("本年广告总投入(M)", min_value=1, value=1)
+                if st.button(f"支付广告费 {ad_amt}M"):
+                    if st.session_state.cash >= ad_amt:
+                        log_action("支付广告费", -ad_amt, "投入市场广告")
+                        st.session_state.current_year_income["ad"] += ad_amt
+                        st.rerun()
+                    else:
+                        st.error("❌ 现金不足以支付该笔广告费！")
+                
                 st.divider()
+                st.markdown("#### B. 订单登记 (第一季度竞单)")
+                available_prods = [p for p, d in st.session_state.rnd.items() if d['status'] == "已研发"]
+                if not available_prods: available_prods = ["P1"]
+                
+                c_prod, c_qty, c_rev, c_term, c_btn = st.columns([2, 1, 1, 1, 1])
+                with c_prod: o_prod = st.selectbox("录入订单", available_prods)
+                with c_qty: o_qty = st.number_input("数量", min_value=1, value=1)
+                with c_rev: o_rev = st.number_input("总金额", min_value=1, value=5)
+                with c_term: o_term = st.number_input("账期(Q)", min_value=0, max_value=4, value=2)
+                with c_btn:
+                    st.write("")
+                    st.write("")
+                    if st.button("登记单据"):
+                        st.session_state.orders.append({"id": st.session_state.order_counter, "product": o_prod, "qty": o_qty, "revenue": o_rev, "terms": o_term})
+                        log_action("登记订单", 0, f"单号{st.session_state.order_counter}: {o_prod} x{o_qty}")
+                        st.session_state.order_counter += 1
+                        st.rerun()
+            else:
+                st.info("🕒 **非第一季度**：市场竞单与广告投入仅在每年第一季度开展。当前仅支持按既有订单交货。")
+
+            st.divider()
+            st.markdown("#### C. 待交货订单与交割")
+            if st.session_state.orders:
                 for o in st.session_state.orders:
                     cc1, cc2, cc3 = st.columns([3, 1, 2])
                     cc1.write(f"待交货: {o['product']} x{o['qty']} (收入 {o['revenue']}M, {o['terms']}期)")
@@ -509,6 +511,8 @@ with tab_ops:
                             st.session_state.orders = [order for order in st.session_state.orders if order['id'] != o['id']]
                             st.rerun()
                     else: cc3.error("库存不足")
+            else:
+                st.write("当前无待交货订单。")
             
             st.divider()
             cb1, cb2 = st.columns(2)
@@ -754,7 +758,6 @@ with tab_ops:
                     if st.session_state.cash >= 5:
                         new_id = (max([l['id'] for l in st.session_state.lines]) + 1) if st.session_state.lines else 1
                         cost = LINE_TYPES[new_line_type]['cost']
-                        # 标记 built_year 为当年，确保在当年免收维护费且建成下一年才提折旧
                         st.session_state.lines.append({
                             "id": new_id, "type": new_line_type, "status": "建设中", "product": "未定", 
                             "progress": 1, "invested": 5, "last_invest_q": get_current_q_str(),
